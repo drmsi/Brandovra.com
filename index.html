@@ -529,6 +529,16 @@
       color: rgba(192,192,192,0.25);
     }
 
+    /* ── Amazon disclosure note ── */
+    .modal-amazon-note {
+      font-family: 'Arial', sans-serif;
+      font-size: 0.6rem;
+      letter-spacing: 0.05em;
+      color: rgba(192,192,192,0.35);
+      line-height: 1.5;
+      margin-top: 0.5rem;
+    }
+
     /* ── Social links ── */
     .social-links {
       display: flex;
@@ -608,6 +618,9 @@
         <a class="modal-cta" id="modal-cta" href="#" target="_blank" rel="noopener sponsored">
           Shop Now &rarr;
         </a>
+        <p class="modal-amazon-note" id="modal-amazon-note" style="display:none">
+          As an Amazon Associate I earn from qualifying purchases.
+        </p>
       </div>
     </div>
   </div>
@@ -662,6 +675,7 @@
 
     </div>
     <p>&copy; <span id="yr"></span> Brandovra &mdash; As an affiliate we may earn a commission on qualifying purchases.</p>
+    <p style="margin-top:0.4rem;font-size:0.58rem;color:rgba(192,192,192,0.2);">As an Amazon Associate I earn from qualifying purchases.</p>
     <p style="margin-top:0.75rem;">
       <a href="/privacy.html" style="color:rgba(192,192,192,0.4);text-decoration:none;letter-spacing:.1em;font-size:.6rem;transition:color .2s" onmouseover="this.style.color='#c0c0c0'" onmouseout="this.style.color='rgba(192,192,192,0.4)'">Privacy Policy</a>
       &nbsp;&middot;&nbsp;
@@ -679,6 +693,26 @@
     const REFRESH_MS  = 10 * 60 * 1000; // 10 min
     const CACHE_KEY   = 'brandovra_products_v1';
     const CACHE_TTL   = 10 * 60 * 1000; // 10 min
+
+    // ── Amazon affiliate tag ────────────────────────────────────────────────
+    const AMAZON_TAG = 'brandovra-20';
+
+    function isAmazon(url) {
+      return url && /amazon\.[a-z.]+|amzn\.to/i.test(url);
+    }
+
+    function tagAmazonUrl(url) {
+      if (!url || !isAmazon(url)) return url || '#';
+      try {
+        const u = new URL(url);
+        u.searchParams.set('tag', AMAZON_TAG);
+        return u.toString();
+      } catch {
+        // Fallback for short URLs like amzn.to that may not parse cleanly
+        const sep = url.includes('?') ? '&' : '?';
+        return url.replace(/([?&]tag=[^&]*)/i, '') + sep + 'tag=' + AMAZON_TAG;
+      }
+    }
 
     const COUNTRIES = {
       kw: { name: 'Kuwait',         flag: '🇰🇼' },
@@ -884,7 +918,7 @@
             <span class="card-brand">${escHtml(p.brand || '')}</span>
             <span class="card-title">${escHtml(p.title || '')}</span>
             <span class="card-price">${escHtml(p.price || '')}</span>
-            <a class="card-cta" href="${escHtml(p.affiliate_url || '#')}" target="_blank" rel="noopener sponsored">
+            <a class="card-cta" href="${escHtml(tagAmazonUrl(p.affiliate_url))}" target="_blank" rel="noopener sponsored">
               Shop Now
             </a>
           </div>
@@ -1019,7 +1053,12 @@
       document.getElementById('modal-title').textContent    = p.title || '';
       document.getElementById('modal-price').textContent    = p.price || '';
       document.getElementById('modal-desc').textContent     = p.description || '';
-      document.getElementById('modal-cta').href             = p.affiliate_url || '#';
+
+      const taggedUrl = tagAmazonUrl(p.affiliate_url);
+      document.getElementById('modal-cta').href = taggedUrl;
+
+      const amzNote = document.getElementById('modal-amazon-note');
+      amzNote.style.display = isAmazon(p.affiliate_url) ? 'block' : 'none';
 
       modal.classList.add('open');
       document.body.style.overflow = 'hidden';
