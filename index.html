@@ -679,10 +679,14 @@
 
   <script>
     // ── Config ─────────────────────────────────────────────────────────────
-    const REPO    = 'drmsi/Brandovra.com';
-    const FOLDER  = 'products';
-    const API_URL = `https://api.github.com/repos/${REPO}/contents/${FOLDER}`;
-    const REFRESH_MS = 5 * 60 * 1000;
+    const REPO      = 'drmsi/Brandovra.com';
+    const BRANCH    = 'main';
+    const FOLDER    = 'products';
+    const API_URL   = `https://api.github.com/repos/${REPO}/contents/${FOLDER}`;
+    const RAW_BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${FOLDER}`;
+    const REFRESH_MS  = 10 * 60 * 1000; // 10 min
+    const CACHE_KEY   = 'brandovra_products_v1';
+    const CACHE_TTL   = 10 * 60 * 1000; // 10 min
 
     const COUNTRIES = {
       kw: { name: 'Kuwait',         flag: '🇰🇼' },
@@ -821,8 +825,12 @@
     function filteredProducts() {
       let list = allProducts;
       if (activeCountry) {
-        list = list.filter(p => (p.country || '').toLowerCase() === activeCountry);
+        // Country page: match exact country code.
+        // Products with null/empty country are NOT shown on country pages.
+        list = list.filter(p => p.country === activeCountry);
       }
+      // Homepage (activeCountry === null): ALL products shown,
+      // including those with no country field set.
       if (activeCategory !== 'all') {
         list = list.filter(p => (p.category || '').toLowerCase() === activeCategory);
       }
@@ -903,36 +911,74 @@
     }
 
     // ── Fetch all products ─────────────────────────────────────────────────
-    async function loadProducts() {
+    async function loadProducts(bustCache = false) {
+      // 1. Try localStorage cache first
+      if (!bustCache) {
+        try {
+          const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+          if (cached && Array.isArray(cached.products) && (Date.now() - cached.ts) < CACHE_TTL) {
+            allProducts = cached.products;
+            syncFromURL();
+            renderGrid();
+            return;
+          }
+        } catch { /* ignore corrupt cache */ }
+      }
+
+      // 2. Fetch file listing from GitHub Contents API
       try {
-        const listRes = await fetch(API_URL, { headers: { 'Accept': 'application/vnd.github+json' } });
+        const listRes = await fetch(API_URL, {
+          headers: { 'Accept': 'application/vnd.github+json' }
+        });
         if (!listRes.ok) throw new Error(`GitHub API ${listRes.status}`);
         const files = await listRes.json();
 
+        if (!Array.isArray(files)) throw new Error('Unexpected API response');
+
         const jsonFiles = files
-          .filter(f => f.name.endsWith('.json'))
+          .filter(f => f.type === 'file' && f.name.endsWith('.json'))
           .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
 
         if (!jsonFiles.length) { allProducts = []; renderEmpty(); return; }
 
+        // 3. Fetch each product via constructed raw HTTPS URL (guaranteed HTTPS, CDN-cached)
         const results = await Promise.all(
           jsonFiles.map(async file => {
             try {
-              const res = await fetch(file.download_url);
+              const url = `${RAW_BASE}/${encodeURIComponent(file.name)}`;
+              const res = await fetch(url);
               if (!res.ok) return null;
               const data = await res.json();
               data._ts = parseInt(file.name, 10) || 0;
+              // Normalise country: trim + lowercase, treat blank as null
+              data.country = (data.country || '').trim().toLowerCase() || null;
               return data;
             } catch { return null; }
           })
         );
 
         allProducts = results.filter(Boolean);
-        syncFromURL();   // update header + country nav with real data
+
+        // 4. Persist to cache
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), products: allProducts }));
+        } catch { /* storage full or unavailable */ }
+
+        syncFromURL();
         renderGrid();
 
       } catch (err) {
         console.error('Load failed:', err);
+        // Fall back to stale cache if available
+        try {
+          const stale = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+          if (stale && Array.isArray(stale.products)) {
+            allProducts = stale.products;
+            syncFromURL();
+            renderGrid();
+            return;
+          }
+        } catch {}
         renderError(err.message);
       }
     }
@@ -977,10 +1023,10 @@
       renderGrid();
     });
 
-    // ── Auto-refresh ───────────────────────────────────────────────────────
+    // ── Auto-refresh (bypasses cache to fetch fresh data) ─────────────────
     async function refresh() {
       refreshDot.classList.add('active');
-      await loadProducts();
+      await loadProducts(true); // bustCache = true
       setTimeout(() => refreshDot.classList.remove('active'), 800);
     }
     setInterval(refresh, REFRESH_MS);
