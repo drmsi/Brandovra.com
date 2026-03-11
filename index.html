@@ -585,16 +585,8 @@
     <nav class="country-nav" id="country-nav"></nav>
   </div>
 
-  <!-- Category filter nav -->
-  <nav class="category-nav" id="category-nav">
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="fashion">Fashion</button>
-    <button class="filter-btn" data-filter="jewelry">Jewelry</button>
-    <button class="filter-btn" data-filter="bags">Bags</button>
-    <button class="filter-btn" data-filter="footwear">Footwear</button>
-    <button class="filter-btn" data-filter="beauty">Beauty</button>
-    <button class="filter-btn" data-filter="watches">Watches</button>
-  </nav>
+  <!-- Category filter nav — populated dynamically from products -->
+  <nav class="category-nav" id="category-nav"></nav>
 
   <main>
     <div id="section-header"></div>
@@ -803,23 +795,46 @@
       countryNavEl.querySelectorAll('.country-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const code = btn.dataset.country;
+          activeCategory = 'all'; // reset category on country switch
           window.history.pushState({}, '', code ? '/' + code : '/');
           syncFromURL();
+          renderCategoryNav();
           renderGrid();
         });
       });
     }
 
-    // ── Category nav ────────────────────────────────────────────────────────
-    document.getElementById('category-nav').addEventListener('click', e => {
-      const btn = e.target.closest('.filter-btn');
-      if (!btn) return;
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeCategory = btn.dataset.filter;
-      renderGrid();
-      renderSectionHeader();
-    });
+    // ── Category nav — built from loaded products ──────────────────────────
+    const categoryNav = document.getElementById('category-nav');
+
+    function renderCategoryNav() {
+      // Collect categories present in the currently visible products
+      const pool = activeCountry
+        ? allProducts.filter(p => p.country === activeCountry)
+        : allProducts;
+
+      const seen = new Set();
+      pool.forEach(p => { if (p.category) seen.add(p.category.toLowerCase().trim()); });
+      const cats = [...seen].sort();
+
+      // Capitalise first letter for display
+      const label = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+      let html = `<button class="filter-btn ${activeCategory === 'all' ? 'active' : ''}" data-filter="all">All</button>`;
+      cats.forEach(cat => {
+        html += `<button class="filter-btn ${activeCategory === cat ? 'active' : ''}" data-filter="${escHtml(cat)}">${escHtml(label(cat))}</button>`;
+      });
+      categoryNav.innerHTML = html;
+
+      categoryNav.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeCategory = btn.dataset.filter;
+          renderCategoryNav(); // re-render to update active state
+          renderGrid();
+          renderSectionHeader();
+        });
+      });
+    }
 
     // ── Filtered product list ──────────────────────────────────────────────
     function filteredProducts() {
@@ -919,6 +934,7 @@
           if (cached && Array.isArray(cached.products) && (Date.now() - cached.ts) < CACHE_TTL) {
             allProducts = cached.products;
             syncFromURL();
+            renderCategoryNav();
             renderGrid();
             return;
           }
@@ -965,6 +981,7 @@
         } catch { /* storage full or unavailable */ }
 
         syncFromURL();
+        renderCategoryNav();
         renderGrid();
 
       } catch (err) {
@@ -975,6 +992,7 @@
           if (stale && Array.isArray(stale.products)) {
             allProducts = stale.products;
             syncFromURL();
+            renderCategoryNav();
             renderGrid();
             return;
           }
@@ -1019,7 +1037,9 @@
 
     // ── Popstate (browser back/forward) ────────────────────────────────────
     window.addEventListener('popstate', () => {
+      activeCategory = 'all';
       syncFromURL();
+      renderCategoryNav();
       renderGrid();
     });
 
